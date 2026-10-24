@@ -1,0 +1,16 @@
+.gradle/
+build/
+/app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystores are secret by default, except the shared non-secret debug key
+# that keeps every build signed the same way (so friends can update in place).
+*.keystore
+*.jks
+!ci/debug.keystore

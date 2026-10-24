@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lumen's default dark background, used as the window background so there's
+         no white flash before Compose draws. -->
+    <color name="lumen_bg">#0A0A12</color>
+</resources>

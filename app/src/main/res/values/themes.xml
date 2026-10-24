@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose supplies the real theming; this just needs to be a no-action-bar
+         shell with Lumen's dark window background. -->
+    <style name="Theme.LumenUltralight" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/lumen_bg</item>
+        <item name="android:statusBarColor">@color/lumen_bg</item>
+        <item name="android:navigationBarColor">@color/lumen_bg</item>
+    </style>
+</resources>
