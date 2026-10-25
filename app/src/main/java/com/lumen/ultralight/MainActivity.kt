@@ -1,13 +1,10 @@
 package com.lumen.ultralight
 
 import android.content.ComponentName
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Modifier
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -19,12 +16,14 @@ import com.lumen.ultralight.model.Track
 import com.lumen.ultralight.playback.PlaybackService
 import com.lumen.ultralight.playback.PlayerActions
 import com.lumen.ultralight.playback.PlayerState
+import com.lumen.ultralight.theme.ThemeController
 import com.lumen.ultralight.ui.LumenApp
-import com.lumen.ultralight.ui.LumenColorScheme
+import com.lumen.ultralight.ui.ThemeHost
 
 class MainActivity : ComponentActivity() {
 
     private val playerState = PlayerState()
+    private lateinit var themeController: ThemeController
 
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private var controller: MediaController? = null
@@ -61,11 +60,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        themeController = ThemeController(getSharedPreferences("lumen", Context.MODE_PRIVATE))
+
         setContent {
-            MaterialTheme(colorScheme = LumenColorScheme) {
-                Surface(Modifier.fillMaxSize()) {
-                    LumenApp(playerState = playerState, actions = actions)
-                }
+            ThemeHost(themeController = themeController, playerState = playerState) {
+                LumenApp(playerState = playerState, actions = actions, themeController = themeController)
             }
         }
     }

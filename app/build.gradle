@@ -11,8 +11,8 @@ android {
         applicationId 'com.lumen.ultralight'
         minSdk 25          // Android 7.1.1 and up
         targetSdk 34
-        versionCode 4
-        versionName '0.2.1'
+        versionCode 5
+        versionName '0.3.0'
     }
 
     buildTypes {
@@ -69,6 +69,9 @@ dependencies {
 
     // Album art loading (handles content:// URIs)
     implementation 'io.coil-kt:coil-compose:2.6.0'
+
+    // Sampling an accent colour from album art (Blackout theme)
+    implementation 'androidx.palette:palette-ktx:1.0.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }

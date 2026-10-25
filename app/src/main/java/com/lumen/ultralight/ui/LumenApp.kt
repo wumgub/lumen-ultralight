@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -70,6 +73,7 @@ import com.lumen.ultralight.library.LibraryViewModel
 import com.lumen.ultralight.model.Track
 import com.lumen.ultralight.playback.PlayerActions
 import com.lumen.ultralight.playback.PlayerState
+import com.lumen.ultralight.theme.ThemeController
 import kotlinx.coroutines.delay
 
 private sealed interface Detail {
@@ -90,7 +94,7 @@ private const val UNKNOWN_ARTIST = "Unknown artist"
 private const val UNKNOWN_ALBUM = "Unknown album"
 
 @Composable
-fun LumenApp(playerState: PlayerState, actions: PlayerActions) {
+fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: ThemeController) {
     val vm: LibraryViewModel = viewModel()
     val context = LocalContext.current
 
@@ -114,7 +118,9 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions) {
     var query by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf<Detail?>(null) }
     var showNowPlaying by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
+    BackHandler(showSettings) { showSettings = false }
     BackHandler(showNowPlaying) { showNowPlaying = false }
     BackHandler(!showNowPlaying && query.isNotEmpty()) { query = "" }
     BackHandler(!showNowPlaying && query.isEmpty() && detail != null) { detail = null }
@@ -136,7 +142,7 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions) {
             },
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
-                SearchBar(query) { query = it }
+                SearchBar(query, onSettings = { showSettings = true }) { query = it }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val d = detail
                     when {
@@ -171,11 +177,14 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions) {
         if (showNowPlaying) {
             NowPlaying(playerState, actions) { showNowPlaying = false }
         }
+        if (showSettings) {
+            SettingsScreen(themeController) { showSettings = false }
+        }
     }
 }
 
 @Composable
-private fun SearchBar(query: String, onChange: (String) -> Unit) {
+private fun SearchBar(query: String, onSettings: () -> Unit, onChange: (String) -> Unit) {
     TextField(
         value = query,
         onValueChange = onChange,
@@ -183,6 +192,11 @@ private fun SearchBar(query: String, onChange: (String) -> Unit) {
         placeholder = { Text("Search", color = LumenDim) },
         leadingIcon = {
             Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = LumenDim)
+        },
+        trailingIcon = {
+            IconButton(onClick = onSettings) {
+                Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings", tint = LumenDim)
+            }
         },
         singleLine = true,
         shape = RoundedCornerShape(12.dp),
@@ -568,6 +582,113 @@ private fun EmptyScreen(onRescan: () -> Unit) {
 private fun CenterText(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, color = LumenDim, fontSize = 15.sp)
+    }
+}
+
+private val THEME_CHOICES = listOf(
+    "neon" to "Neon",
+    "minimal" to "Flashbang",
+    "minimal-dark" to "Minimal Dark",
+    "retro" to "Retro",
+    "glass" to "Glass",
+    "blackout" to "Blackout",
+)
+
+@Composable
+private fun SettingsScreen(themeController: ThemeController, onClose: () -> Unit) {
+    val selected by themeController.themeId.collectAsState()
+    val fromArt by themeController.blackoutFromArt.collectAsState()
+
+    Surface(color = LumenBg, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) {
+                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = LumenFg)
+                }
+                Text("Settings", color = LumenFg, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("THEME", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+
+            THEME_CHOICES.chunked(2).forEach { pairRow ->
+                Row(Modifier.fillMaxWidth()) {
+                    pairRow.forEach { (id, label) ->
+                        ThemeSwatch(id, label, id == selected, Modifier.weight(1f)) {
+                            themeController.setTheme(id)
+                        }
+                    }
+                    if (pairRow.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+
+            if (selected == "blackout") {
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Accent from album art", color = LumenFg, fontSize = 15.sp)
+                        Text(
+                            "Tint the controls with a colour from the cover; off uses a fixed accent",
+                            color = LumenDim,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(
+                        checked = fromArt,
+                        onCheckedChange = { themeController.setBlackoutFromArt(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = LumenBg,
+                            checkedTrackColor = LumenAccent,
+                            uncheckedThumbColor = LumenDim,
+                            uncheckedTrackColor = LumenBg3,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeSwatch(
+    id: String,
+    label: String,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val c = remember(id) { previewColors(id) }
+    Column(modifier.padding(6.dp).clickable(onClick = onClick)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(c.bg)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) LumenAccent else c.border,
+                    shape = RoundedCornerShape(10.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(8.dp, 24.dp).clip(RoundedCornerShape(4.dp)).background(c.accent))
+                Box(Modifier.size(8.dp, 16.dp).clip(RoundedCornerShape(4.dp)).background(c.fg))
+                Box(Modifier.size(8.dp, 28.dp).clip(RoundedCornerShape(4.dp)).background(c.accent2))
+            }
+            if (selected) {
+                Icon(
+                    painterResource(R.drawable.ic_check),
+                    contentDescription = "Selected",
+                    tint = LumenAccent,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(16.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = LumenFg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
