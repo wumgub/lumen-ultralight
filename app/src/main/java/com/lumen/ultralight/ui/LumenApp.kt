@@ -32,7 +32,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -48,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -82,6 +87,8 @@ import com.lumen.ultralight.R
 import com.lumen.ultralight.library.LibraryViewModel
 import com.lumen.ultralight.model.Track
 import com.lumen.ultralight.playback.PlayerActions
+import com.lumen.ultralight.data.PlaylistViewModel
+import com.lumen.ultralight.data.PlaylistWithCount
 import com.lumen.ultralight.playback.PlayerState
 import com.lumen.ultralight.theme.EDITABLE_TOKENS
 import com.lumen.ultralight.theme.START_FROM
@@ -93,6 +100,7 @@ import kotlinx.coroutines.delay
 private sealed interface Detail {
     data class Artist(val name: String) : Detail
     data class Album(val albumId: Long, val name: String) : Detail
+    data class Playlist(val id: Long, val name: String) : Detail
 }
 
 private data class ArtistItem(val name: String, val count: Int)
@@ -110,6 +118,7 @@ private const val UNKNOWN_ALBUM = "Unknown album"
 @Composable
 fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: ThemeController) {
     val vm: LibraryViewModel = viewModel()
+    val playlistVm: PlaylistViewModel = viewModel()
     val context = LocalContext.current
 
     var granted by remember { mutableStateOf(hasAudioPermission(context)) }
@@ -133,6 +142,8 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: 
     var detail by remember { mutableStateOf<Detail?>(null) }
     var showNowPlaying by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var addTrack by remember { mutableStateOf<Track?>(null) }
+    val onAddToPlaylist: (Track) -> Unit = { addTrack = it }
 
     BackHandler(showSettings) { showSettings = false }
     BackHandler(showNowPlaying) { showNowPlaying = false }
@@ -161,13 +172,13 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: 
                     val d = detail
                     when {
                         query.isNotBlank() ->
-                            SongList(filterTracks(tracks, query), currentId, actions)
+                            SongList(filterTracks(tracks, query), currentId, actions, onAddToPlaylist)
                         d is Detail.Artist -> {
                             val list = remember(tracks, d) {
                                 tracks.filter { (it.artist.ifBlank { UNKNOWN_ARTIST }) == d.name }
                                     .sortedWith(compareBy({ it.album.lowercase() }, { it.trackNo }))
                             }
-                            DetailScreen(d.name, "${list.size} songs", list, currentId, actions) {
+                            DetailScreen(d.name, "${list.size} songs", list, currentId, actions, onAddToPlaylist) {
                                 detail = null
                             }
                         }
@@ -176,11 +187,24 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: 
                                 tracks.filter { it.albumId == d.albumId }.sortedBy { it.trackNo }
                             }
                             DetailScreen(d.name, list.firstOrNull()?.artist?.ifBlank { UNKNOWN_ARTIST } ?: "",
-                                list, currentId, actions) { detail = null }
+                                list, currentId, actions, onAddToPlaylist) { detail = null }
                         }
+                        d is Detail.Playlist -> {
+                            val idsFlow = remember(d.id) { playlistVm.trackIds(d.id) }
+                            val ids by idsFlow.collectAsState(initial = emptyList<Long>())
+                            val list = remember(tracks, ids) {
+                                val byId = tracks.associateBy { it.id }
+                                ids.mapNotNull { byId[it] }
+                            }
+                            DetailScreen(
+                                d.name, "${list.size} songs", list, currentId, actions, onAddToPlaylist,
+                                onRemove = { t -> playlistVm.removeFromPlaylist(d.id, t.id) },
+                            ) { detail = null }
+                        }
+                        tab == 3 -> PlaylistsScreen(playlistVm) { id, name -> detail = Detail.Playlist(id, name) }
                         scanning && tracks.isEmpty() -> CenterText("Scanning your music…")
                         tracks.isEmpty() -> EmptyScreen { vm.scan() }
-                        tab == 0 -> SongList(tracks, currentId, actions)
+                        tab == 0 -> SongList(tracks, currentId, actions, onAddToPlaylist)
                         tab == 1 -> ArtistsScreen(tracks) { detail = Detail.Artist(it) }
                         else -> AlbumsScreen(tracks) { detail = Detail.Album(it.albumId, it.name) }
                     }
@@ -193,6 +217,9 @@ fun LumenApp(playerState: PlayerState, actions: PlayerActions, themeController: 
         }
         if (showSettings) {
             SettingsScreen(themeController) { showSettings = false }
+        }
+        addTrack?.let { t ->
+            AddToPlaylistDialog(playlistVm, t) { addTrack = null }
         }
     }
 }
@@ -232,6 +259,7 @@ private fun BottomTabs(selected: Int, onSelect: (Int) -> Unit) {
         NavItem(selected == 0, { onSelect(0) }, R.drawable.ic_songs, "Songs")
         NavItem(selected == 1, { onSelect(1) }, R.drawable.ic_artists, "Artists")
         NavItem(selected == 2, { onSelect(2) }, R.drawable.ic_albums, "Albums")
+        NavItem(selected == 3, { onSelect(3) }, R.drawable.ic_playlist, "Playlists")
     }
 }
 
@@ -258,21 +286,34 @@ private fun androidx.compose.foundation.layout.RowScope.NavItem(
 }
 
 @Composable
-private fun SongList(tracks: List<Track>, currentId: Long?, actions: PlayerActions) {
+private fun SongList(
+    tracks: List<Track>,
+    currentId: Long?,
+    actions: PlayerActions,
+    onAddToPlaylist: (Track) -> Unit,
+    onRemove: ((Track) -> Unit)? = null,
+) {
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
-            SongRow(track, track.id == currentId) { actions.play(tracks, index) }
+            SongRow(track, track.id == currentId, onAddToPlaylist, onRemove) { actions.play(tracks, index) }
         }
     }
 }
 
 @Composable
-private fun SongRow(track: Track, active: Boolean, onClick: () -> Unit) {
+private fun SongRow(
+    track: Track,
+    active: Boolean,
+    onAddToPlaylist: (Track) -> Unit,
+    onRemove: ((Track) -> Unit)?,
+    onClick: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Artwork(track.artUri, Modifier.size(48.dp))
@@ -296,6 +337,23 @@ private fun SongRow(track: Track, active: Boolean, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Text(formatDuration(track.durationMs), color = LumenDim, fontSize = 12.sp)
+        Box {
+            IconButton(onClick = { menu = true }) {
+                Icon(painterResource(R.drawable.ic_more), contentDescription = "More", tint = LumenDim)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Add to playlist", color = LumenFg) },
+                    onClick = { menu = false; onAddToPlaylist(track) },
+                )
+                if (onRemove != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remove from playlist", color = LumenFg) },
+                        onClick = { menu = false; onRemove(track) },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -369,6 +427,8 @@ private fun DetailScreen(
     tracks: List<Track>,
     currentId: Long?,
     actions: PlayerActions,
+    onAddToPlaylist: (Track) -> Unit,
+    onRemove: ((Track) -> Unit)? = null,
     onBack: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
@@ -384,7 +444,7 @@ private fun DetailScreen(
                 if (subtitle.isNotBlank()) Text(subtitle, color = LumenDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        SongList(tracks, currentId, actions)
+        SongList(tracks, currentId, actions, onAddToPlaylist, onRemove)
     }
 }
 
@@ -898,6 +958,172 @@ private fun editorFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedLabelColor = LumenDim,
     unfocusedLabelColor = LumenDim,
 )
+
+@Composable
+private fun PlaylistsScreen(vm: PlaylistViewModel, onOpen: (Long, String) -> Unit) {
+    val playlists by vm.playlists.collectAsState()
+    var creating by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf<PlaylistWithCount?>(null) }
+    var deleting by remember { mutableStateOf<PlaylistWithCount?>(null) }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Playlists", color = LumenFg, fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { creating = true }) {
+                Icon(painterResource(R.drawable.ic_add), contentDescription = "New playlist", tint = LumenAccent)
+            }
+        }
+        if (playlists.isEmpty()) {
+            CenterText("No playlists yet. Tap + to make one.")
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                itemsIndexed(playlists, key = { _, p -> p.id }) { _, p ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpen(p.id, p.name) }
+                            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(painterResource(R.drawable.ic_playlist), contentDescription = null, tint = LumenDim, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, color = LumenFg, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${p.count} songs", color = LumenDim, fontSize = 12.sp)
+                        }
+                        IconButton(onClick = { renaming = p }) {
+                            Icon(painterResource(R.drawable.ic_edit), contentDescription = "Rename", tint = LumenDim, modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { deleting = p }) {
+                            Icon(painterResource(R.drawable.ic_delete), contentDescription = "Delete", tint = LumenDim, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (creating) {
+        NameDialog("New playlist", "", onDismiss = { creating = false }) { name ->
+            vm.create(name)
+            creating = false
+        }
+    }
+    renaming?.let { r ->
+        NameDialog("Rename playlist", r.name, onDismiss = { renaming = null }) { name ->
+            vm.rename(r.id, name)
+            renaming = null
+        }
+    }
+    deleting?.let { d ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            confirmButton = {
+                TextButton(onClick = { vm.delete(d.id); deleting = null }) {
+                    Text("Delete", color = Color(0xFFE0607E))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleting = null }) { Text("Cancel", color = LumenDim) }
+            },
+            title = { Text("Delete playlist", color = LumenFg) },
+            text = { Text("Delete \"${d.name}\"? The songs stay in your library.", color = LumenDim) },
+            containerColor = LumenBg2,
+        )
+    }
+}
+
+@Composable
+private fun AddToPlaylistDialog(vm: PlaylistViewModel, track: Track, onDone: () -> Unit) {
+    val playlists by vm.playlists.collectAsState()
+    var creating by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDone) {
+        Surface(color = LumenBg2, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.width(300.dp).padding(vertical = 16.dp)) {
+                Text(
+                    "Add to playlist",
+                    color = LumenFg,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                if (playlists.isEmpty()) {
+                    Text(
+                        "No playlists yet",
+                        color = LumenDim,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                } else {
+                    playlists.forEach { pl ->
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable { vm.addToPlaylist(pl.id, track.id); onDone() }
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(painterResource(R.drawable.ic_playlist), contentDescription = null, tint = LumenDim, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(pl.name, color = LumenFg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${pl.count}", color = LumenDim, fontSize = 12.sp)
+                        }
+                    }
+                }
+                Divider(color = LumenBg3)
+                Row(
+                    Modifier.fillMaxWidth().clickable { creating = true }.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(painterResource(R.drawable.ic_add), contentDescription = null, tint = LumenAccent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("New playlist", color = LumenAccent, fontSize = 14.sp)
+                }
+            }
+        }
+    }
+
+    if (creating) {
+        NameDialog("New playlist", "", onDismiss = { creating = false }) { name ->
+            vm.createAndAdd(name, track.id)
+            creating = false
+            onDone()
+        }
+    }
+}
+
+@Composable
+private fun NameDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = LumenBg2, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.width(300.dp).padding(20.dp)) {
+                Text(title, color = LumenFg, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = editorFieldColors(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = LumenDim) }
+                    Button(onClick = { if (text.isNotBlank()) onSubmit(text.trim()) }) { Text("Save") }
+                }
+            }
+        }
+    }
+}
 
 private fun filterTracks(tracks: List<Track>, query: String): List<Track> {
     val q = query.trim()
