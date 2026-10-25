@@ -11,6 +11,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +38,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -55,11 +61,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,7 +83,11 @@ import com.lumen.ultralight.library.LibraryViewModel
 import com.lumen.ultralight.model.Track
 import com.lumen.ultralight.playback.PlayerActions
 import com.lumen.ultralight.playback.PlayerState
+import com.lumen.ultralight.theme.EDITABLE_TOKENS
+import com.lumen.ultralight.theme.START_FROM
 import com.lumen.ultralight.theme.ThemeController
+import com.lumen.ultralight.theme.exportTokens
+import com.lumen.ultralight.theme.parseTokens
 import kotlinx.coroutines.delay
 
 private sealed interface Detail {
@@ -592,60 +606,79 @@ private val THEME_CHOICES = listOf(
     "retro" to "Retro",
     "glass" to "Glass",
     "blackout" to "Blackout",
+    "custom" to "Custom",
 )
 
 @Composable
 private fun SettingsScreen(themeController: ThemeController, onClose: () -> Unit) {
     val selected by themeController.themeId.collectAsState()
     val fromArt by themeController.blackoutFromArt.collectAsState()
+    val customTokens by themeController.customTokens.collectAsState()
+    var showEditor by remember { mutableStateOf(false) }
 
-    Surface(color = LumenBg, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) {
-                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = LumenFg)
-                }
-                Text("Settings", color = LumenFg, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("THEME", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
+    BackHandler(showEditor) { showEditor = false }
 
-            THEME_CHOICES.chunked(2).forEach { pairRow ->
-                Row(Modifier.fillMaxWidth()) {
-                    pairRow.forEach { (id, label) ->
-                        ThemeSwatch(id, label, id == selected, Modifier.weight(1f)) {
-                            themeController.setTheme(id)
-                        }
-                    }
-                    if (pairRow.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-
-            if (selected == "blackout") {
-                Spacer(Modifier.height(16.dp))
+    Box(Modifier.fillMaxSize()) {
+        Surface(color = LumenBg, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Accent from album art", color = LumenFg, fontSize = 15.sp)
-                        Text(
-                            "Tint the controls with a colour from the cover; off uses a fixed accent",
-                            color = LumenDim,
-                            fontSize = 12.sp,
+                    IconButton(onClick = onClose) {
+                        Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = LumenFg)
+                    }
+                    Text("Settings", color = LumenFg, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("THEME", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+
+                THEME_CHOICES.chunked(2).forEach { pairRow ->
+                    Row(Modifier.fillMaxWidth()) {
+                        pairRow.forEach { (id, label) ->
+                            val swatchColors = if (id == "custom") colorsFromTokens(customTokens) else previewColors(id)
+                            ThemeSwatch(id, label, swatchColors, id == selected, Modifier.weight(1f)) {
+                                themeController.setTheme(id)
+                            }
+                        }
+                        if (pairRow.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+
+                if (selected == "blackout") {
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Accent from album art", color = LumenFg, fontSize = 15.sp)
+                            Text(
+                                "Tint the controls with a colour from the cover; off uses a fixed accent",
+                                color = LumenDim,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Switch(
+                            checked = fromArt,
+                            onCheckedChange = { themeController.setBlackoutFromArt(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = LumenOnAccent,
+                                checkedTrackColor = LumenAccent,
+                                uncheckedThumbColor = LumenDim,
+                                uncheckedTrackColor = LumenBg3,
+                            ),
                         )
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Switch(
-                        checked = fromArt,
-                        onCheckedChange = { themeController.setBlackoutFromArt(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = LumenBg,
-                            checkedTrackColor = LumenAccent,
-                            uncheckedThumbColor = LumenDim,
-                            uncheckedTrackColor = LumenBg3,
-                        ),
-                    )
+                }
+
+                if (selected == "custom") {
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { showEditor = true }) {
+                        Text("Edit custom theme")
+                    }
                 }
             }
+        }
+
+        if (showEditor) {
+            CustomThemeEditor(themeController) { showEditor = false }
         }
     }
 }
@@ -654,11 +687,11 @@ private fun SettingsScreen(themeController: ThemeController, onClose: () -> Unit
 private fun ThemeSwatch(
     id: String,
     label: String,
+    c: LumenColors,
     selected: Boolean,
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
-    val c = remember(id) { previewColors(id) }
     Column(modifier.padding(6.dp).clickable(onClick = onClick)) {
         Box(
             Modifier
@@ -691,6 +724,180 @@ private fun ThemeSwatch(
         Text(label, color = LumenFg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
+
+@Composable
+private fun CustomThemeEditor(themeController: ThemeController, onClose: () -> Unit) {
+    val tokens by themeController.customTokens.collectAsState()
+    var editingKey by remember { mutableStateOf<String?>(null) }
+    var importText by remember { mutableStateOf("") }
+    var importError by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+
+    Surface(color = LumenBg, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = LumenFg)
+                }
+                Text("Custom theme", color = LumenFg, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            }
+
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            ) {
+                Text("START FROM", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    START_FROM.forEach { (id, label) ->
+                        OutlinedButton(onClick = { themeController.resetCustomFrom(id) }) {
+                            Text(label, fontSize = 12.sp, color = LumenFg)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+                Text("COLOURS", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+
+                EDITABLE_TOKENS.forEach { (key, label) ->
+                    val hexStr = tokens[key] ?: ""
+                    val swatch = parseHexColor(hexStr) ?: LumenBg3
+                    Row(
+                        Modifier.fillMaxWidth().clickable { editingKey = key }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(swatch)
+                                .border(1.dp, LumenDim, RoundedCornerShape(6.dp)),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(label, color = LumenFg, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Text(hexStr.uppercase(), color = LumenDim, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+                Text("SHARE", color = LumenDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { clipboard.setText(AnnotatedString(exportTokens(tokens))) }) {
+                    Text("Copy theme to clipboard")
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = importText,
+                    onValueChange = { importText = it; importError = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Paste a theme") },
+                    minLines = 2,
+                    maxLines = 4,
+                    colors = editorFieldColors(),
+                )
+                if (importError) {
+                    Text("That doesn't look like a Lumen theme.", color = Color(0xFFE0607E), fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = {
+                    val parsed = parseTokens(importText)
+                    if (parsed != null) {
+                        themeController.replaceCustom(parsed)
+                        importText = ""
+                        importError = false
+                    } else {
+                        importError = true
+                    }
+                }) {
+                    Text("Apply pasted theme")
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+
+    editingKey?.let { key ->
+        ColorPickerDialog(
+            initialHex = tokens[key] ?: "#000000",
+            onDismiss = { editingKey = null },
+        ) { hex -> themeController.setCustomToken(key, hex) }
+    }
+}
+
+@Composable
+private fun ColorPickerDialog(
+    initialHex: String,
+    onDismiss: () -> Unit,
+    onColor: (String) -> Unit,
+) {
+    val initial = parseHexColor(initialHex) ?: Color.Black
+    val startHsv = remember(initialHex) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(initial.toArgb(), it) }
+    }
+    var h by remember(initialHex) { mutableStateOf(startHsv[0]) }
+    var s by remember(initialHex) { mutableStateOf(startHsv[1]) }
+    var v by remember(initialHex) { mutableStateOf(startHsv[2]) }
+    var hexField by remember(initialHex) { mutableStateOf(colorToHex(initial)) }
+
+    fun pushHsv() {
+        val c = Color(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
+        hexField = colorToHex(c)
+        onColor(hexField)
+    }
+
+    val current = Color(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = LumenBg2, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.width(300.dp).padding(20.dp)) {
+                Box(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(10.dp)).background(current))
+                Spacer(Modifier.height(16.dp))
+                Text("Hue", color = LumenDim, fontSize = 12.sp)
+                Slider(value = h, onValueChange = { h = it; pushHsv() }, valueRange = 0f..360f, colors = sliderColors())
+                Text("Saturation", color = LumenDim, fontSize = 12.sp)
+                Slider(value = s, onValueChange = { s = it; pushHsv() }, valueRange = 0f..1f, colors = sliderColors())
+                Text("Brightness", color = LumenDim, fontSize = 12.sp)
+                Slider(value = v, onValueChange = { v = it; pushHsv() }, valueRange = 0f..1f, colors = sliderColors())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = hexField,
+                    onValueChange = { text ->
+                        hexField = text
+                        val c = parseHexColor(text)
+                        if (c != null) {
+                            val arr = FloatArray(3)
+                            android.graphics.Color.colorToHSV(c.toArgb(), arr)
+                            h = arr[0]; s = arr[1]; v = arr[2]
+                            onColor(colorToHex(c))
+                        }
+                    },
+                    label = { Text("Hex") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = editorFieldColors(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = onDismiss) { Text("Done") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun editorFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = LumenFg,
+    unfocusedTextColor = LumenFg,
+    focusedBorderColor = LumenAccent,
+    unfocusedBorderColor = LumenDim,
+    cursorColor = LumenAccent,
+    focusedLabelColor = LumenDim,
+    unfocusedLabelColor = LumenDim,
+)
 
 private fun filterTracks(tracks: List<Track>, query: String): List<Track> {
     val q = query.trim()

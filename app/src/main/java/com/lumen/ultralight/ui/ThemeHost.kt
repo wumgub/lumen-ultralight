@@ -42,6 +42,7 @@ fun ThemeHost(
     val id by themeController.themeId.collectAsState()
     val fromArt by themeController.blackoutFromArt.collectAsState()
     val dynArgb by themeController.dynamicAccent.collectAsState()
+    val customTokens by themeController.customTokens.collectAsState()
     val artUri by playerState.artUri.collectAsState()
 
     LaunchedEffect(id, fromArt, artUri) {
@@ -53,12 +54,14 @@ fun ThemeHost(
         }
     }
 
-    val colors = remember(id, fromArt, dynArgb) {
-        if (id == "blackout") {
-            val accent = if (fromArt) (dynArgb?.let { Color(it) } ?: BlackoutDefaultAccent) else BlackoutDefaultAccent
-            blackoutColors(accent)
-        } else {
-            colorsFor(id)
+    val colors = remember(id, fromArt, dynArgb, customTokens) {
+        when (id) {
+            "blackout" -> {
+                val accent = if (fromArt) (dynArgb?.let { Color(it) } ?: BlackoutDefaultAccent) else BlackoutDefaultAccent
+                blackoutColors(accent)
+            }
+            "custom" -> colorsFromTokens(customTokens)
+            else -> colorsFor(id)
         }
     }
 

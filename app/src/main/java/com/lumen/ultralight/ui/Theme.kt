@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import kotlin.math.roundToInt
 
 /** Resolved colour roles for the whole UI. Mirrors the web app's token model
  *  (minus the visualizer tokens, which this build has no use for). */
@@ -81,6 +82,49 @@ fun colorsFor(id: String): LumenColors = when (id) {
 
 fun previewColors(id: String): LumenColors =
     if (id == "blackout") blackoutColors(BlackoutDefaultAccent) else colorsFor(id)
+
+/** Parse a hex string (#rgb / #rrggbb / #aarrggbb, with or without #) to a Color. */
+fun parseHexColor(s: String): Color? {
+    val h = s.trim().removePrefix("#")
+    val full = when (h.length) {
+        3 -> h.map { "$it$it" }.joinToString("")
+        6, 8 -> h
+        else -> return null
+    }
+    val v = full.toLongOrNull(16) ?: return null
+    return when (full.length) {
+        6 -> Color(0xFF000000 or v)
+        8 -> Color(v)
+        else -> null
+    }
+}
+
+fun colorToHex(c: Color): String {
+    val r = (c.red * 255f).roundToInt().coerceIn(0, 255)
+    val g = (c.green * 255f).roundToInt().coerceIn(0, 255)
+    val b = (c.blue * 255f).roundToInt().coerceIn(0, 255)
+    return "#%02X%02X%02X".format(r, g, b)
+}
+
+/** Build the UI colour roles from a custom token map, falling back to neon. */
+fun colorsFromTokens(t: Map<String, String>): LumenColors {
+    fun g(key: String, def: String): Color = parseHexColor(t[key] ?: "") ?: hex(def)
+    val bg = g("bg", "#0a0a12")
+    val accent = g("accent", "#22d3ee")
+    return LumenColors(
+        bg = bg,
+        bg2 = g("bg-2", "#11111d"),
+        bg3 = g("bg-3", "#1a1a2b"),
+        popover = g("popover-bg", "#11111d"),
+        fg = g("fg", "#f0f0ff"),
+        fgDim = g("fg-dim", "#8a8aa8"),
+        accent = accent,
+        accent2 = g("accent-2", "#c026d3"),
+        border = g("border", "#23233a"),
+        onAccent = onAccentFor(accent),
+        isDark = isDark(bg),
+    )
+}
 
 val LocalLumenColors = staticCompositionLocalOf { colorsFor("neon") }
 
