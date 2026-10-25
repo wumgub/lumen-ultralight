@@ -11,7 +11,6 @@ class PlayerActions(
     val seek: (positionMs: Long) -> Unit,
     val toggleShuffle: () -> Unit,
     val cycleRepeat: () -> Unit,
-    val setVolume: (volume: Float) -> Unit,
     val position: () -> Long,
     val duration: () -> Long,
 )

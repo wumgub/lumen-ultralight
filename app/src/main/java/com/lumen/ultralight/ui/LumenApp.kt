@@ -406,7 +406,6 @@ private fun NowPlaying(playerState: PlayerState, actions: PlayerActions, onClose
     val currentId by playerState.currentId.collectAsState()
     val shuffle by playerState.shuffle.collectAsState()
     val repeatMode by playerState.repeatMode.collectAsState()
-    val volume by playerState.volume.collectAsState()
 
     var position by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
@@ -495,20 +494,6 @@ private fun NowPlaying(playerState: PlayerState, actions: PlayerActions, onClose
             }
 
             Spacer(Modifier.height(8.dp))
-
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_volume), contentDescription = null, tint = LumenDim, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Slider(
-                    value = volume,
-                    onValueChange = { actions.setVolume(it) },
-                    valueRange = 0f..1.5f,
-                    modifier = Modifier.weight(1f),
-                    colors = sliderColors(),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("${(volume * 100).toInt()}%", color = LumenDim, fontSize = 11.sp, modifier = Modifier.width(44.dp))
-            }
         }
     }
 }

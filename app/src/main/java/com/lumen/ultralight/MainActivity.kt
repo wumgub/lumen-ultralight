@@ -1,8 +1,6 @@
 package com.lumen.ultralight
 
 import android.content.ComponentName
-import android.content.Context
-import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,7 +12,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -24,12 +21,10 @@ import com.lumen.ultralight.playback.PlayerActions
 import com.lumen.ultralight.playback.PlayerState
 import com.lumen.ultralight.ui.LumenApp
 import com.lumen.ultralight.ui.LumenColorScheme
-import kotlin.math.log10
 
 class MainActivity : ComponentActivity() {
 
     private val playerState = PlayerState()
-    private lateinit var prefs: SharedPreferences
 
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private var controller: MediaController? = null
@@ -60,16 +55,12 @@ class MainActivity : ComponentActivity() {
         seek = { controller?.seekTo(it) },
         toggleShuffle = { controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } },
         cycleRepeat = ::cycleRepeat,
-        setVolume = ::setVolume,
         position = { controller?.currentPosition ?: 0L },
         duration = { controller?.duration ?: 0L },
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = getSharedPreferences("lumen", Context.MODE_PRIVATE)
-        playerState.volume.value = prefs.getFloat("volume", 0.9f).coerceIn(0f, 1.5f)
-
         setContent {
             MaterialTheme(colorScheme = LumenColorScheme) {
                 Surface(Modifier.fillMaxSize()) {
@@ -91,7 +82,6 @@ class MainActivity : ComponentActivity() {
             playerState.shuffle.value = c.shuffleModeEnabled
             playerState.repeatMode.value = c.repeatMode
             pushCurrent(c.currentMediaItem)
-            setVolume(playerState.volume.value) // apply saved volume + gain
         }, MoreExecutors.directExecutor())
     }
 
@@ -128,19 +118,6 @@ class MainActivity : ComponentActivity() {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
-    }
-
-    private fun setVolume(raw: Float) {
-        val v = raw.coerceIn(0f, 1.5f)
-        playerState.volume.value = v
-        prefs.edit().putFloat("volume", v).apply()
-
-        val c = controller ?: return
-        c.volume = v.coerceAtMost(1f)
-        // Above 100%, boost with the service-side LoudnessEnhancer. +amplitude in mB.
-        val gainMb = if (v > 1f) (20.0 * log10(v.toDouble()) * 100).toInt() else 0
-        val args = Bundle().apply { putInt(PlaybackService.KEY_GAIN_MB, gainMb) }
-        c.sendCustomCommand(SessionCommand(PlaybackService.CMD_SET_GAIN, Bundle.EMPTY), args)
     }
 }
 

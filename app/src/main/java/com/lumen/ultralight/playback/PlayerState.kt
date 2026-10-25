@@ -15,5 +15,4 @@ class PlayerState {
     val artUri = MutableStateFlow<String?>(null)
     val shuffle = MutableStateFlow(false)
     val repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
-    val volume = MutableStateFlow(0.9f) // 0f..1.5f
 }
