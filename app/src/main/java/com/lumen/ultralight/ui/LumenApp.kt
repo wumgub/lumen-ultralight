@@ -234,7 +234,7 @@ private fun androidx.compose.foundation.layout.RowScope.NavItem(
         icon = { Icon(painterResource(iconRes), contentDescription = label) },
         label = { Text(label, fontSize = 11.sp) },
         colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = LumenBg,
+            selectedIconColor = LumenOnAccent,
             indicatorColor = LumenAccent,
             selectedTextColor = LumenAccent,
             unselectedIconColor = LumenDim,

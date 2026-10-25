@@ -20,6 +20,7 @@ data class LumenColors(
     val accent: Color,
     val accent2: Color,
     val border: Color,
+    val onAccent: Color, // readable on top of `accent`
     val isDark: Boolean,
 )
 
@@ -35,15 +36,19 @@ private fun hex(s: String): Color {
 private fun isDark(c: Color): Boolean =
     (0.299f * c.red + 0.587f * c.green + 0.114f * c.blue) < 0.5f
 
+private fun onAccentFor(accent: Color): Color =
+    if (isDark(accent)) Color.White else Color(0xFF141414)
+
 private fun colors(
     bg: String, bg2: String, bg3: String, popover: String,
     fg: String, fgDim: String, accent: String, accent2: String, border: String,
 ): LumenColors {
     val b = hex(bg)
+    val ac = hex(accent)
     return LumenColors(
         bg = b, bg2 = hex(bg2), bg3 = hex(bg3), popover = hex(popover),
-        fg = hex(fg), fgDim = hex(fgDim), accent = hex(accent), accent2 = hex(accent2),
-        border = hex(border), isDark = isDark(b),
+        fg = hex(fg), fgDim = hex(fgDim), accent = ac, accent2 = hex(accent2),
+        border = hex(border), onAccent = onAccentFor(ac), isDark = isDark(b),
     )
 }
 
@@ -60,6 +65,7 @@ fun blackoutColors(accent: Color): LumenColors = LumenColors(
     accent = accent,
     accent2 = accent,
     border = Color(0xFF1B1B1B),
+    onAccent = onAccentFor(accent),
     isDark = true,
 )
 
@@ -86,9 +92,10 @@ val LumenBg3: Color @Composable @ReadOnlyComposable get() = LocalLumenColors.cur
 val LumenFg: Color @Composable @ReadOnlyComposable get() = LocalLumenColors.current.fg
 val LumenDim: Color @Composable @ReadOnlyComposable get() = LocalLumenColors.current.fgDim
 val LumenAccent: Color @Composable @ReadOnlyComposable get() = LocalLumenColors.current.accent
+val LumenOnAccent: Color @Composable @ReadOnlyComposable get() = LocalLumenColors.current.onAccent
 
 fun materialSchemeFor(c: LumenColors): ColorScheme {
-    val onAccent = if (isDark(c.accent)) Color.White else Color(0xFF141414)
+    val onAccent = c.onAccent
     return if (c.isDark) {
         darkColorScheme(
             background = c.bg, surface = c.bg, surfaceVariant = c.bg2,
